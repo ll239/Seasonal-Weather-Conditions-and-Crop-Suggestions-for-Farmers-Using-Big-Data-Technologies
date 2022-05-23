@@ -1,0 +1,78 @@
+ssh -i /Users/tamhuynh/Desktop/keypair.pem hadoop@ec2-3-216-126-196.compute-1.amazonaws.com
+
+sudo chmod 600 /Users/tamhuynh/Desktop/keypair.pem
+
+
+CREATE EXTERNAL TABLE station_code (CODIGO string, ESTACAO string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n'
+LOCATION 's3://aws-logs-866864007097-us-east-1/station_code/';
+
+
+CREATE EXTERNAL TABLE hive_station (SCODE string, LOCATION string)
+STORED BY 'org.apache.hadoop.hive.dynamodb.DynamoDBStorageHandler' 
+TBLPROPERTIES ("dynamodb.table.name" = "table_station", 
+"dynamodb.column.mapping" = "SCODE:SCODE,LOCATION:LOCATION"); 
+
+
+INSERT OVERWRITE TABLE hiveStationCode SELECT * FROM station_code WHERE CODIGO != 'CODIGO';
+
+----------------------------------------------------------------
+
+
+CREATE EXTERNAL TABLE weather_data (STATION_ID STRING, CAL_DAY STRING ,HOUR STRING ,RAINFALL_TOT DOUBLE, ATM_PRESS DOUBLE, MAX_ATM_PRESS DOUBLE , MIN_ATM_PRESS  DOUBLE, GLOBAL_RADIATION DOUBLE, AIR_TEMP DOUBLE, DEW_PT_TEMP DOUBLE, MAX_TEMP DOUBLE, MIN_TEMP DOUBLE, MAX_DEW_PT DOUBLE, MIN_DEW_PT DOUBLE, MAX_HUMIDITY DOUBLE, MIN_HUMIDITY DOUBLE, HUMIDITY DOUBLE, WIND_DIR DOUBLE, WIND_GUST DOUBLE, WIND_SPEED DOUBLE)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ';' LINES TERMINATED BY '\n'
+LOCATION 's3://aws-logs-866864007097-us-east-1/weather_data/';
+
+
+CREATE EXTERNAL TABLE hiveWeatherData (SEASON STRING, STATION_ID STRING, AVG_TEMP DOUBLE, AVG_HUMI DOUBLE, AVG_RAINFALL DOUBLE)
+STORED BY 'org.apache.hadoop.hive.dynamodb.DynamoDBStorageHandler' 
+TBLPROPERTIES ("dynamodb.table.name" = "table_weather", 
+"dynamodb.column.mapping" = "SEASON:SEASON,STATION_ID:STATION_ID,AVG_TEMP:AVG_TEMP,AVG_HUMI:AVG_HUMI,AVG_RAINFALL:AVG_RAINFALL"); 
+
+
+INSERT OVERWRITE TABLE hiveWeatherData SELECT SEASON, STATION_ID, ROUND(AVG(AIR_TEMP),2) as AVG_TEMP, 
+ROUND(AVG(HUMIDITY),2) as AVG_HUMI, ROUND(SUM(RAINFALL_TOT)/3,2) as AVG_RAINFALL  FROM 
+(SELECT Case when (CAL_DAY LIKE '%-09-%' OR CAL_DAY LIKE '%-10-%' OR CAL_DAY LIKE '%-11-%') THEN 'Spring' when (CAL_DAY LIKE '%-12-%' OR CAL_DAY LIKE '%-01-%' OR CAL_DAY LIKE '%-02-%') THEN 'Summer' when (CAL_DAY LIKE '%-03-%' OR CAL_DAY LIKE '%-04-%' OR CAL_DAY LIKE '%-05-%') THEN 'Fall' ELSE 'Winter' END as SEASON, STATION_ID, AIR_TEMP, HUMIDITY, RAINFALL_TOT FROM weather_data WHERE STATION_ID != 'ESTACAO' AND RAINFALL_TOT >= 0 AND HUMIDITY != -9999.0 AND AIR_TEMP != -9999.0 AND NOT (RAINFALL_TOT is null or HUMIDITY is null or AIR_TEMP is null)) W GROUP BY SEASON, STATION_ID;
+
+
+----------------------------------------------------------------
+
+CREATE EXTERNAL TABLE crop_rec (LABEL string, TEMP_Q1 double, TEMP_Q3 double, HUMI_Q1 double, HUMI_Q2 double, RAIN_Q1 DOUBLE, RAIN_Q3 DOUBLE) 
+ROW FORMAT DELIMITED FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n'
+LOCATION 's3://aws-logs-866864007097-us-east-1/crop_recommendation/';
+
+CREATE EXTERNAL TABLE hiveCropRec (LABEL string, TEMP_Q1 double, TEMP_Q3 double, HUMI_Q1 double, HUMI_Q3 double, RAIN_Q1 DOUBLE, RAIN_Q3 DOUBLE) 
+STORED BY 'org.apache.hadoop.hive.dynamodb.DynamoDBStorageHandler' 
+TBLPROPERTIES ("dynamodb.table.name" = "table_crop", 
+"dynamodb.column.mapping" = "LABEL:LABEL,TEMP_Q1:TEMP_Q1,TEMP_Q3:TEMP_Q3,HUMI_Q1:HUMI_Q1,HUMI_Q3:HUMI_Q3,RAIN_Q1:RAIN_Q1,RAIN_Q3:RAIN_Q3");  
+
+INSERT OVERWRITE TABLE hiveCropRec SELECT * FROM crop_rec WHERE LABEL != 'label';
+
+----------------------------------------------------------------
+
+CREATE EXTERNAL TABLE hive_all_data (SEASON string, LOCATION string, STATION_ID string, AVG_TEMP double, AVG_HUMI double, AVG_RAINFALL double, LABEL string)
+STORED BY 'org.apache.hadoop.hive.dynamodb.DynamoDBStorageHandler'
+TBLPROPERTIES ("dynamodb.table.name" = "all_data",
+"dynamodb.column.mapping" = "SEASON:SEASON,LOCATION:LOCATION,STATION_ID:STATION_ID,AVG_TEMP:AVG_TEMP,AVG_HUMI:AVG_HUMI,AVG_RAINFALL:AVG_RAINFALL,LABEL:LABEL");
+
+INSERT OVERWRITE hive_all_data SELECT
+
+
+INSERT OVERWRITE TABLE hiveWeatherData SELECT SEASON, STATION_ID, ROUND(AVG(AIR_TEMP),2) as AVG_TEMP, 
+ROUND(AVG(HUMIDITY),2) as AVG_HUMI, ROUND(SUM(RAINFALL_TOT)/(22*3),2) as AVG_RAINFALL  FROM 
+(SELECT Case when (CAL_DAY LIKE '%-09-%' OR CAL_DAY LIKE '%-10-%' OR CAL_DAY LIKE '%-11-%') THEN 'Spring' when (CAL_DAY LIKE '%-12-%' OR CAL_DAY LIKE '%-01-%' OR CAL_DAY LIKE '%-02-%') THEN 'Summer' when (CAL_DAY LIKE '%-03-%' OR CAL_DAY LIKE '%-04-%' OR CAL_DAY LIKE '%-05-%') THEN 'Fall' ELSE 'Winter' END as SEASON, STATION_ID, AIR_TEMP, HUMIDITY, RAINFALL_TOT FROM weather_data WHERE STATION_ID != 'ESTACAO' AND RAINFALL_TOT >= 0 AND HUMIDITY != -9999.0 AND AIR_TEMP != -9999.0 AND NOT (RAINFALL_TOT is null or HUMIDITY is null or AIR_TEMP is null)) W GROUP BY SEASON, STATION_ID;
+
+
+
+INSERT OVERWRITE TABLE hive_all_data Select SEASON, LOCATION, STATION_ID, AVG_TEMP, AVG_HUMI, AVG_RAINFALL, LABEL from hiveWeatherData a join hive_station b on a.STATION_ID=b.SCODE left join hiveCropRec c on (a.AVG_TEMP between c.TEMP_Q1 and c.TEMP_Q3) AND (a.AVG_HUMI between c.HUMI_Q1 and c.HUMI_Q3) AND (a.AVG_RAINFALL between c.RAIN_Q1 and c.RAIN_Q3);
+
+Select distinct label from hiveWeatherData a join hive_station b on a.STATION_ID=b.SCODE left join hiveCropRec c on (a.AVG_TEMP between c.TEMP_Q1 and c.TEMP_Q3) AND (a.AVG_HUMI between c.HUMI_Q1 and c.HUMI_Q3) AND (a.AVG_RAINFALL between c.RAIN_Q1 and c.RAIN_Q3);
+
+Select distinct label from hiveWeatherData a join hive_station b on a.STATION_ID=b.SCODE left join hiveCropRec c on (a.AVG_TEMP between c.TEMP_Q1*0.95 and c.TEMP_Q3*1.05) AND (a.AVG_HUMI between c.HUMI_Q1*0.95 and c.HUMI_Q3*1.05) AND (a.AVG_RAINFALL between c.RAIN_Q1*0.95 and c.RAIN_Q3*1.05);
+
+Select SEASON, STATION_ID, AVG_TEMP from hiveWeatherData join hive_station 
+
+
+INSERT OVERWRITE DIRECTORY 's3://aws-logs-866864007097-us-east-1/hive-test/'
+SELECT * FROM table_crop;
+s3://aws-logs-866864007097-us-east-1/hive-test/
